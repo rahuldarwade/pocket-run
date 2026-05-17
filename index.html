@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1e3a8a">
+    <meta name="description" content="PocketRun - Upload and run any project folder or ZIP on your mobile. Python, Web, and more. No laptop needed.">
+    <title>PocketRun • Run Projects on Mobile</title>
+    
+    <!-- Tailwind CSS Play CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- JSZip for ZIP handling -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Space+Grotesk:wght@500;600&display=swap');
+        
+        body { font-family: 'Inter', system_ui, sans-serif; }
+        .font-display { font-family: 'Space Grotesk', 'Inter', sans-serif; font-weight: 600; }
+
+        .mobile-container {
+            max-width: 480px;
+            margin: 0 auto;
+            min-height: 100dvh;
+            background: #0f172a;
+            box-shadow: 0 0 0 1px #334155;
+        }
+
+        .section { display: none; }
+        .section.active { display: block; }
+
+        .nav-tab { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+        .nav-tab.active { color: #3b82f6; border-bottom: 3px solid #3b82f6; }
+
+        .console-line {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+            font-size: 13px;
+            line-height: 1.4;
+            padding: 2px 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .dropzone { transition: all 0.3s ease; }
+        .dropzone.dragover { background-color: #1e40af20; border-color: #3b82f6; transform: scale(1.01); }
+
+        .status-badge { font-size: 10px; padding: 1px 8px; border-radius: 9999px; font-weight: 600; letter-spacing: -.5px; }
+
+        .terminal { background: #020617; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+        .app-header { background: #0f172a; backdrop-filter: blur(12px); }
+
+        .run-button { transition: transform 0.1s ease, box-shadow 0.2s ease; }
+        .run-button:active { transform: scale(0.985); }
+
+        .project-root { max-height: 420px; overflow-y: auto; scrollbar-width: thin; }
+
+        .log-info { color: #94a3b8; }
+        .log-warn { color: #fbbf24; }
+        .log-error { color: #f87171; }
+        .log-success { color: #4ade80; }
+
+        .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-200">
+    <div class="mobile-container mx-auto min-h-screen flex flex-col">
+        
+        <!-- Header -->
+        <div class="app-header sticky top-0 z-50 border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-x-3">
+                <div class="w-9 h-9 bg-blue-600 rounded-2xl flex items-center justify-center shadow-inner">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.25" d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.473a2 2 0 01-1.789-2.894l.5-1M14 10V5a2 2 0 00-2-2v0a2 2 0 00-2 2v5m0 0v5m0-5h-2m2 0h2" />
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="font-display text-2xl font-semibold tracking-tighter">PocketRun</h1>
+                    <p class="text-[10px] text-slate-500 -mt-1">v1.0 • Mobile Project Runner</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-x-2">
+                <div id="project-status" class="hidden items-center gap-x-1.5 px-3 py-1 bg-slate-900 border border-slate-700 rounded-3xl text-xs">
+                    <div class="w-2 h-2 bg-emerald-400 rounded-full animate-pulse"></div>
+                    <span id="project-name-header" class="font-medium text-emerald-300 text-xs max-w-[90px] truncate"></span>
+                </div>
+                
+                <button onclick="showHelp()" class="w-9 h-9 flex items-center justify-center text-slate-400 hover:text-slate-200 active:bg-slate-800 rounded-2xl transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 4.01V8" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <div class="flex-1 p-4 pb-20 overflow-auto" id="main-content">
+            
+            <!-- UPLOAD SECTION -->
+            <div id="upload-section" class="section active">
+                <div class="pt-6 pb-4">
+                    <div class="text-center mb-8">
+                        <div class="inline-flex items-center justify-center w-16 h-16 bg-blue-600/10 rounded-3xl mb-4">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-9 h-9 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                            </svg>
+                        </div>
+                        <h2 class="text-3xl font-semibold tracking-tighter">Upload your project</h2>
+                        <p class="text-slate-400 mt-1.5 text-[15px]">ZIP or folder • Any language • Runs here</p>
+                    </div>
+
+                    <div id="dropzone" class="dropzone border-2 border-dashed border-slate-700 hover:border-blue-500/70 rounded-3xl p-8 text-center cursor-pointer bg-slate-900/50" ondrop="handleDrop(event)" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" onclick="document.getElementById('zip-input').click()">
+                        <div class="flex flex-col items-center">
+                            <div class="w-12 h-12 bg-slate-800 rounded-2xl flex items-center justify-center mb-4">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                                </svg>
+                            </div>
+                            <p class="font-semibold text-lg">Drop project here</p>
+                            <p class="text-sm text-slate-500 mt-0.5">ZIP file or entire folder</p>
+                            
+                            <div class="flex gap-3 mt-6">
+                                <button onclick="event.stopImmediatePropagation(); document.getElementById('zip-input').click()" class="px-5 py-2.5 bg-white text-slate-900 hover:bg-slate-100 active:bg-white text-sm font-semibold rounded-2xl flex items-center gap-x-2 shadow-sm">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v-4m0 0l4 4m-4-4l4-4m6 8v-4m0 0l4 4m-4-4l4-4" />
+                                    </svg>
+                                    <span>Select ZIP</span>
+                                </button>
+                                
+                                <button onclick="event.stopImmediatePropagation(); document.getElementById('folder-input').click()" class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-sm font-semibold rounded-2xl flex items-center gap-x-2">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                    </svg>
+                                    <span>Select Folder</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <input type="file" id="zip-input" accept=".zip,application/zip" class="hidden" onchange="handleZipUpload(event)">
+                    <input type="file" id="folder-input" webkitdirectory multiple class="hidden" onchange="handleFolderUpload(event)">
+
+                    <div class="grid grid-cols-3 gap-3 mt-6">
+                        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3 text-center">
+                            <div class="text-emerald-400 text-xs font-bold tracking-wider">PYTHON</div>
+                            <div class="text-[10px] text-slate-400 mt-0.5">Scripts + deps</div>
+                        </div>
+                        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3 text-center">
+                            <div class="text-violet-400 text-xs font-bold tracking-wider">WEB</div>
+                            <div class="text-[10px] text-slate-400 mt-0.5">HTML / JS / CSS</div>
+                        </div>
+                        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3 text-center">
+                            <div class="text-amber-400 text-xs font-bold tracking-wider">ANY</div>
+                            <div class="text-[10px] text-slate-400 mt-0.5">+ JS, errors shown</div>
+                        </div>
+                    </div>
+
+                    <div class="mt-6 text-center">
+                        <p class="text-xs text-slate-500">Works great for scripts, small games, data tools, automations.<br>Large native compiles or heavy GUI may have limits.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PROJECT SECTION -->
+            <div id="project-section" class="section">
+                <div class="project-card border border-slate-700 rounded-3xl p-4 mb-4">
+                    <div class="flex justify-between items-start">
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-x-2">
+                                <h3 id="project-name" class="font-semibold text-xl tracking-tight truncate"></h3>
+                                <span id="project-type-badge" class="status-badge px-2.5 py-px text-white text-[10px] font-bold self-start mt-1.5"></span>
+                            </div>
+                            <div class="flex items-center gap-x-3 text-xs text-slate-400 mt-0.5">
+                                <span id="project-files-count"></span>
+                                <span>•</span>
+                                <span id="project-size"></span>
+                            </div>
+                        </div>
+                        <button onclick="clearProject()" class="text-xs px-3 py-1.5 text-red-400 hover:text-red-300 hover:bg-red-950/50 rounded-2xl flex items-center gap-x-1 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6h12v12" />
+                            </svg>
+                            <span class="font-medium text-xs">Clear</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="flex border-b border-slate-800 mb-4">
+                    <button onclick="switchTab('files-tab')" id="tab-files" class="nav-tab flex-1 py-3 text-sm font-semibold border-b-2 border-blue-500 text-blue-400">Files</button>
+                    <button onclick="switchTab('run-tab')" id="tab-run" class="nav-tab flex-1 py-3 text-sm font-semibold text-slate-400">Run</button>
+                    <button onclick="switchTab('console-tab')" id="tab-console" class="nav-tab flex-1 py-3 text-sm font-semibold text-slate-400">Console</button>
+                </div>
+
+                <!-- FILES TAB -->
+                <div id="files-tab" class="tab-content">
+                    <div class="flex items-center justify-between mb-3 px-1">
+                        <div class="text-sm font-semibold text-slate-300">Project Files</div>
+                        <div class="flex gap-2">
+                            <button onclick="downloadProjectAsZip()" class="text-xs flex items-center gap-x-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-700 rounded-2xl text-slate-300">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M17 13v6m-3-3h6M6 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4l2 2h4a2 2 0 012 2v3" />
+                                </svg>
+                                <span class="text-xs">ZIP</span>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="file-tree" class="project-root bg-slate-900 border border-slate-800 rounded-2xl p-1 text-sm overflow-hidden"></div>
+                    
+                    <div class="mt-3 text-[10px] text-slate-500 px-1 flex items-center gap-x-2">
+                        <div class="flex-1 h-px bg-slate-800"></div>
+                        <span>Tap any file to view / edit</span>
+                        <div class="flex-1 h-px bg-slate-800"></div>
+                    </div>
+                </div>
+
+                <!-- RUN TAB -->
+                <div id="run-tab" class="tab-content hidden">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-xs font-semibold tracking-wider text-slate-400 block mb-1.5 px-1">ENTRY POINT</label>
+                            <div class="flex gap-2">
+                                <input id="entry-point-input" type="text" class="flex-1 bg-slate-900 border border-slate-700 focus:border-blue-500 rounded-2xl px-4 py-3 text-sm mono focus:outline-none" placeholder="main.py or index.html">
+                                <button onclick="detectBestEntryPoint()" class="px-4 text-xs font-semibold bg-slate-800 hover:bg-slate-700 active:bg-slate-900 rounded-2xl border border-slate-700">Auto</button>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3">
+                            <div>
+                                <div class="text-sm font-medium">Ignore large folders</div>
+                                <div class="text-[10px] text-slate-500">node_modules, .git, __pycache__, venv</div>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="ignore-large-dirs" checked class="sr-only peer">
+                                <div class="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                            </label>
+                        </div>
+
+                        <button onclick="runCurrentProject()" class="run-button w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 active:scale-[0.985] transition-all text-white font-bold text-lg tracking-[-0.2px] rounded-3xl flex items-center justify-center gap-x-3 shadow-lg shadow-blue-950">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 4.01V8" />
+                            </svg>
+                            <span>RUN PROJECT</span>
+                        </button>
+
+                        <div class="pt-2">
+                            <div class="text-xs font-semibold text-slate-400 mb-2 px-1">QUICK ACTIONS</div>
+                            <div class="grid grid-cols-2 gap-3">
+                                <button onclick="runSpecificFilePrompt()" class="py-3 text-sm bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-2xl flex items-center justify-center gap-x-2">
+                                    <span>Run single file</span>
+                                </button>
+                                <button onclick="previewWebProject()" class="py-3 text-sm bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-2xl flex items-center justify-center gap-x-2">
+                                    <span>Preview Web</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CONSOLE TAB -->
+                <div id="console-tab" class="tab-content hidden">
+                    <div class="flex items-center justify-between mb-2 px-1">
+                        <div class="font-semibold text-sm flex items-center gap-x-2">
+                            <span>Console & Output</span>
+                            <span id="console-status" class="text-[10px] px-2 py-px bg-slate-800 text-slate-400 rounded">Ready</span>
+                        </div>
+                        <button onclick="clearConsole()" class="text-xs px-3 py-1 bg-slate-800 hover:bg-red-900/30 text-red-400 rounded-2xl flex items-center gap-x-1">
+                            <span>Clear</span>
+                        </button>
+                    </div>
+                    
+                    <div id="console-output" class="terminal border border-slate-800 rounded-2xl p-3 h-[320px] overflow-auto text-xs leading-relaxed text-slate-300">
+                        <div class="text-slate-500 text-center py-8">Run a project to see output and errors here</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Navigation -->
+        <div class="fixed bottom-0 left-0 right-0 max-w-[480px] mx-auto border-t border-slate-800 bg-slate-900/95 backdrop-blur-lg z-50">
+            <div class="grid grid-cols-4 text-xs">
+                <button onclick="switchToUpload()" class="py-3 flex flex-col items-center justify-center text-slate-400 hover:text-slate-200 active:bg-slate-800">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v-4m0 0l4 4m-4-4l4-4m6 8v-4m0 0l4 4m-4-4l4-4" /></svg>
+                    <span class="font-medium">Upload</span>
+                </button>
+                <button onclick="switchTab('files-tab')" class="py-3 flex flex-col items-center justify-center text-slate-400 hover:text-slate-200 active:bg-slate-800">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
+                    <span class="font-medium">Files</span>
+                </button>
+                <button onclick="switchTab('run-tab')" class="py-3 flex flex-col items-center justify-center text-slate-400 hover:text-slate-200 active:bg-slate-800">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 4.01V8" /></svg>
+                    <span class="font-medium">Run</span>
+                </button>
+                <button onclick="switchTab('console-tab')" class="py-3 flex flex-col items-center justify-center text-slate-400 hover:text-slate-200 active:bg-slate-800">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    <span class="font-medium">Console</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Modal -->
+    <div id="file-modal" onclick="if (event.target.id === 'file-modal') hideFileModal()" class="hidden fixed inset-0 bg-black/70 z-[100] flex items-end md:items-center justify-center">
+        <div onclick="event.stopImmediatePropagation()" class="bg-slate-900 w-full max-w-[480px] rounded-t-3xl md:rounded-3xl p-5 border border-slate-700 max-h-[85dvh] flex flex-col">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <div id="modal-file-path" class="font-mono text-sm text-blue-400"></div>
+                    <div id="modal-file-info" class="text-xs text-slate-500"></div>
+                </div>
+                <button onclick="hideFileModal()" class="text-slate-400 hover:text-white p-2">✕</button>
+            </div>
+            
+            <div class="flex-1 overflow-auto">
+                <textarea id="modal-file-content" spellcheck="false" class="w-full h-full min-h-[280px] bg-slate-950 border border-slate-800 rounded-2xl p-4 text-sm mono focus:outline-none resize-y"></textarea>
+            </div>
+            
+            <div class="flex gap-3 mt-4">
+                <button onclick="saveFileFromModal()" class="flex-1 py-3 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-sm font-semibold rounded-2xl">Save Changes</button>
+                <button onclick="hideFileModal()" class="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-sm font-semibold rounded-2xl">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="hidden fixed bottom-20 left-1/2 -translate-x-1/2 max-w-[320px] bg-slate-800 border border-slate-700 text-white text-sm px-4 py-3 rounded-2xl shadow-xl z-[200]">
+        <div class="flex items-center gap-x-2" id="toast-content"></div>
+    </div>
+
+    <script>
+        let currentProject = null;
+        let pyodideInstance = null;
+        let consoleLines = [];
+        let currentTab = 'files-tab';
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const content = document.getElementById('toast-content');
+            content.innerHTML = `<div class="flex items-center gap-x-2">${type === 'success' ? '<svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 10l7-7m0 0l7 7"></path></svg>' : '<svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3"></path></svg>'}<span>${message}</span></div>`;
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 2600);
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(tabId).classList.remove('hidden');
+            document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active', 'border-blue-500', 'text-blue-400'));
+            const activeTab = document.getElementById('tab-' + tabId.split('-')[0]);
+            if (activeTab) activeTab.classList.add('active', 'border-blue-500', 'text-blue-400');
+            currentTab = tabId;
+        }
+
+        function switchToUpload() {
+            document.getElementById('upload-section').classList.add('active');
+            document.getElementById('project-section').classList.remove('active');
+            document.getElementById('project-status').classList.add('hidden');
+        }
+
+        function showProjectSection() {
+            document.getElementById('upload-section').classList.remove('active');
+            document.getElementById('project-section').classList.add('active');
+            document.getElementById('project-status').classList.remove('hidden');
+            document.getElementById('project-status').classList.add('flex');
+            switchTab('files-tab');
+        }
+
+        function updateProjectHeader() {
+            if (!currentProject) return;
+            document.getElementById('project-name').textContent = currentProject.name;
+            document.getElementById('project-name-header').textContent = currentProject.name.length > 18 ? currentProject.name.substring(0,15)+'...' : currentProject.name;
+            const badge = document.getElementById('project-type-badge');
+            badge.textContent = currentProject.type.toUpperCase();
+            if (currentProject.type === 'python') badge.className = 'status-badge px-2.5 py-px bg-emerald-600 text-white text-[10px] font-bold';
+            else if (currentProject.type === 'web') badge.className = 'status-badge px-2.5 py-px bg-violet-600 text-white text-[10px] font-bold';
+            else badge.className = 'status-badge px-2.5 py-px bg-amber-600 text-white text-[10px] font-bold';
+            document.getElementById('project-files-count').textContent = `${currentProject.files.size} files`;
+            document.getElementById('project-size').textContent = formatBytes(currentProject.totalSize);
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        async function processProjectFiles(fileMap, projectName) {
+            const files = new Map();
+            let totalSize = 0;
+            const ignoreLarge = document.getElementById('ignore-large-dirs')?.checked ?? true;
+            const ignorePatterns = ['node_modules', '.git', '__pycache__', 'venv', 'env', 'dist', 'build'];
+
+            for (const [path, fileInfo] of fileMap.entries()) {
+                if (ignoreLarge && path.split('/').some(part => ignorePatterns.includes(part))) continue;
+                files.set(path, fileInfo);
+                totalSize += fileInfo.size || 0;
+            }
+            if (files.size === 0) { showToast("No files found after filtering", "error"); return; }
+
+            let type = 'unknown';
+            const paths = Array.from(files.keys());
+            const hasPy = paths.some(p => p.endsWith('.py'));
+            const hasHtml = paths.some(p => p.toLowerCase().endsWith('.html'));
+
+            if (hasPy && !hasHtml) type = 'python';
+            else if (hasHtml) type = 'web';
+            else if (hasPy) type = 'python';
+
+            currentProject = { name: projectName || 'Untitled Project', files, type, totalSize, entryPoint: null };
+            detectBestEntryPoint(true);
+            renderFileTree();
+            updateProjectHeader();
+            showProjectSection();
+            clearConsole(true);
+            showToast(`Project loaded: ${files.size} files`, 'success');
+            setTimeout(() => switchTab('files-tab'), 300);
+        }
+
+        function detectBestEntryPoint(silent = false) {
+            if (!currentProject) return;
+            const paths = Array.from(currentProject.files.keys());
+            let entry = '';
+            if (currentProject.type === 'python') {
+                entry = paths.find(p => ['main.py','app.py','run.py'].includes(p)) || paths.find(p => p.endsWith('.py')) || '';
+            } else if (currentProject.type === 'web') {
+                entry = paths.find(p => p.toLowerCase().includes('index.html')) || paths.find(p => p.endsWith('.html')) || '';
+            }
+            currentProject.entryPoint = entry;
+            const input = document.getElementById('entry-point-input');
+            if (input) input.value = entry;
+        }
+
+        function renderFileTree() {
+            const container = document.getElementById('file-tree');
+            container.innerHTML = '';
+            if (!currentProject) return;
+
+            const tree = {};
+            for (const [path, info] of currentProject.files.entries()) {
+                const parts = path.split('/');
+                let current = tree;
+                parts.forEach((part, i) => {
+                    if (!current[part]) current[part] = (i === parts.length-1) ? {__file:true, path, info} : {};
+                    current = current[part];
+                });
+            }
+
+            function createTreeHTML(node, prefix='') {
+                let html = '';
+                Object.keys(node).sort().forEach(key => {
+                    const item = node[key];
+                    const isFile = item.__file;
+                    if (isFile) {
+                        const ext = key.split('.').pop();
+                        let icon = '📄';
+                        if (ext==='py') icon='🐍'; else if (['html','htm'].includes(ext)) icon='🌐'; else if (ext==='js') icon='📜';
+                        html += `<div onclick="viewFile('${item.path.replace(/'/g,"\\'")}')" class="file-tree-item flex items-center gap-x-2.5 px-3 py-[7px] rounded-2xl cursor-pointer text-sm"><span class="text-base w-5">${icon}</span><span class="flex-1 truncate">${key}</span><span class="text-[10px] text-slate-500">${formatBytes(item.info.size)}</span></div>`;
+                    } else {
+                        html += `<div class="px-1"><div class="flex items-center gap-x-2 px-3 py-1 text-sm font-medium text-slate-300"><span class="text-base">📁</span><span>${key}</span></div><div class="pl-5 border-l border-slate-700 ml-2.5">${createTreeHTML(item, prefix?prefix+'/'+key:key)}</div></div>`;
+                    }
+                });
+                return html;
+            }
+            container.innerHTML = createTreeHTML(tree);
+        }
+
+        function viewFile(path) {
+            if (!currentProject?.files.has(path)) return;
+            const fileData = currentProject.files.get(path);
+            const modal = document.getElementById('file-modal');
+            document.getElementById('modal-file-path').textContent = path;
+            document.getElementById('modal-file-info').textContent = `${formatBytes(fileData.size||0)} • ${fileData.isBinary ? 'Binary' : 'Text file'}`;
+            const ta = document.getElementById('modal-file-content');
+            ta.value = fileData.isBinary ? '[Binary file]' : (fileData.content || '');
+            ta.disabled = fileData.isBinary;
+            modal.dataset.currentPath = path;
+            modal.style.display = 'flex';
+        }
+
+        function hideFileModal() { document.getElementById('file-modal').style.display = 'none'; }
+
+        function saveFileFromModal() {
+            const modal = document.getElementById('file-modal');
+            const path = modal.dataset.currentPath;
+            if (!path || !currentProject?.files.has(path)) return hideFileModal();
+            const fileData = currentProject.files.get(path);
+            if (fileData.isBinary) return showToast("Can't edit binary files", "error");
+            fileData.content = document.getElementById('modal-file-content').value;
+            fileData.size = new Blob([fileData.content]).size;
+            renderFileTree();
+            updateProjectHeader();
+            hideFileModal();
+            showToast("File saved");
+        }
+
+        function handleDragOver(e){ e.preventDefault(); document.getElementById('dropzone').classList.add('dragover'); }
+        function handleDragLeave(e){ e.preventDefault(); document.getElementById('dropzone').classList.remove('dragover'); }
+
+        async function handleDrop(e) {
+            e.preventDefault();
+            document.getElementById('dropzone').classList.remove('dragover');
+            const file = e.dataTransfer.files[0];
+            if (file?.name.toLowerCase().endsWith('.zip')) await handleZipFile(file);
+            else await processDroppedFiles(e.dataTransfer.files, "Dropped Folder");
+        }
+
+        async function handleZipFile(file) {
+            try {
+                const zip = await JSZip.loadAsync(file);
+                const fileMap = new Map();
+                const promises = [];
+                zip.forEach((relPath, entry) => {
+                    if (!entry.dir) promises.push(entry.async("uint8array").then(data => {
+                        const isBin = ['png','jpg','jpeg','pdf','zip'].some(ext => relPath.endsWith(ext));
+                        fileMap.set(relPath, { content: isBin ? data : new TextDecoder().decode(data), isBinary: isBin, size: data.length });
+                    }));
+                });
+                await Promise.all(promises);
+                await processProjectFiles(fileMap, file.name.replace(/\.zip$/i,''));
+            } catch(e){ showToast("Invalid ZIP", "error"); }
+        }
+
+        async function handleFolderUpload(e) {
+            const files = e.target.files;
+            const fileMap = new Map();
+            let name = "Uploaded Folder";
+            if (files[0]?.webkitRelativePath) name = files[0].webkitRelativePath.split('/')[0];
+            for (let f of files) {
+                const path = f.webkitRelativePath || f.name;
+                const isBin = ['png','jpg'].some(ext => f.name.endsWith(ext));
+                const content = isBin ? await f.arrayBuffer().then(b => new Uint8Array(b)) : await f.text();
+                fileMap.set(path, {content, isBinary: isBin, size: f.size});
+            }
+            await processProjectFiles(fileMap, name);
+            e.target.value = '';
+        }
+
+        async function processDroppedFiles(fileList, defaultName) {
+            const fileMap = new Map();
+            for (let f of fileList) {
+                const path = f.webkitRelativePath || f.name;
+                const isBin = ['png','jpg'].some(ext => f.name.endsWith(ext));
+                const content = isBin ? await f.arrayBuffer().then(b=>new Uint8Array(b)) : await f.text();
+                fileMap.set(path, {content, isBinary:isBin, size:f.size});
+            }
+            await processProjectFiles(fileMap, defaultName);
+        }
+
+        async function runCurrentProject() {
+            if (!currentProject) return showToast("No project loaded", "error");
+            const entry = document.getElementById('entry-point-input').value.trim() || currentProject.entryPoint;
+            if (!entry || !currentProject.files.has(entry)) return showToast("Entry point not found", "error");
+
+            clearConsole();
+            appendToConsole(`Starting ${currentProject.name} with ${entry}`);
+            
+            if (entry.endsWith('.py')) await runPythonProject(entry);
+            else if (entry.endsWith('.html')) await runWebProject(entry);
+            else showToast("Only .py and .html supported in this version");
+            switchTab('console-tab');
+        }
+
+        async function runPythonProject(entryPoint) {
+            appendToConsole("Loading Python (Pyodide)...");
+            if (!pyodideInstance) {
+                pyodideInstance = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.29.4/full/" });
+            }
+            const py = pyodideInstance;
+            try {
+                py.FS.mkdir('/project');
+            } catch(e){}
+            for (const [path, f] of currentProject.files) {
+                if (!f.isBinary) {
+                    const full = '/project/' + path;
+                    py.FS.mkdirTree(full.substring(0, full.lastIndexOf('/')));
+                    py.FS.writeFile(full, f.content, {encoding:'utf8'});
+                }
+            }
+            py.runPython('import os; os.chdir("/project")');
+            py.setStdout({batched: t => appendToConsole(t)});
+            py.setStderr({batched: t => appendToConsole(t, 'error')});
+            try {
+                await py.runPythonAsync(currentProject.files.get(entryPoint).content);
+                appendToConsole("Script finished successfully", 'success');
+            } catch(e) {
+                appendToConsole("Error: " + e, 'error');
+            }
+        }
+
+        async function runWebProject(entry) {
+            const html = currentProject.files.get(entry).content;
+            const url = URL.createObjectURL(new Blob([html], {type:'text/html'}));
+            window.open(url, '_blank');
+            appendToConsole("Opened web project in new tab");
+        }
+
+        function appendToConsole(text, type='log') {
+            const el = document.getElementById('console-output');
+            if (el.querySelector('.text-slate-500')) el.innerHTML = '';
+            const div = document.createElement('div');
+            div.className = `console-line ${type==='error'?'log-error': type==='success'?'log-success':''}`;
+            div.textContent = text;
+            el.appendChild(div);
+            el.scrollTop = el.scrollHeight;
+        }
+
+        function clearConsole() {
+            document.getElementById('console-output').innerHTML = '<div class="text-slate-500 text-center py-8">Console cleared</div>';
+        }
+
+        function downloadProjectAsZip() {
+            if (!currentProject) return;
+            const zip = new JSZip();
+            for (const [p, f] of currentProject.files) zip.file(p, f.content);
+            zip.generateAsync({type:"blob"}).then(b => {
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(b);
+                a.download = currentProject.name + '.zip';
+                a.click();
+            });
+        }
+
+        function clearProject() {
+            if (!confirm('Clear project?')) return;
+            currentProject = null;
+            document.getElementById('project-section').classList.remove('active');
+            document.getElementById('upload-section').classList.add('active');
+            document.getElementById('project-status').classList.add('hidden');
+        }
+
+        function showHelp() {
+            alert('PocketRun v1.0\nUpload ZIP or folder → Run Python or Web projects on your phone\nPython uses Pyodide (first time needs internet)');
+        }
+
+        function initializeApp() {
+            document.getElementById('ignore-large-dirs').checked = true;
+            document.getElementById('upload-section').classList.add('active');
+            window.PocketRun = { clearProject, runCurrentProject };
+            console.log('%c[PocketRun] Ready', 'color:#64748b');
+        }
+        window.onload = initializeApp;
+    </script>
+</body>
+</html>
